@@ -5,7 +5,7 @@ function Send_Pushover_Notification
 {
 	param(
 		[Parameter(Mandatory = $true)]
-		[System.Collections.ArrayList]$UserKeys,       # Pushover User Keys
+		[string]$UserKey,       # Pushover User Keys
 
 		[Parameter(Mandatory = $true)]
 		[string]$ApiToken,      # Your Pushover API token
@@ -19,38 +19,38 @@ function Send_Pushover_Notification
 		[string]$Priority = "0"			 # Priority (-1, 0, 1, 2)
 	)
 
-	foreach($UserKey in $UserKeys)
-	{
-		try {
+	Write-Host $UserKey
+	Write-Host $ApiToken
+	
+	try {
 
-			# Prepare POST body
-			$body = @{
-				token    = $ApiToken
-				user     = $UserKey
-				message  = $Message
-				title    = $Title
-				priority = $Priority
-			}
-
-			# Send request to Pushover API
-			$response = Invoke-RestMethod `
-				-Uri "https://api.pushover.net/1/messages.json" `
-				-Method Post `
-				-Body $body `
-				-ContentType "application/x-www-form-urlencoded"
-
-			# Check response
-			if ($response.status -eq 1) {
-				Write-Host "Notification sent successfully!" -ForegroundColor Green
-			} else {
-				Write-Host "Failed to send notification. Response:" -ForegroundColor Red
-				$response | Format-List
-			}
+		# Prepare POST body
+		$body = @{
+			token    = $ApiToken
+			user     = $UserKey
+			message  = $Pushover_Message
+			title    = $Pushover_Title
+			priority = $Priority
 		}
-		catch {
-			Write-Host "Error sending notification: $_" -ForegroundColor Red
-		}		
+
+		# Send request to Pushover API
+		$response = Invoke-RestMethod `
+			-Uri "https://api.pushover.net/1/messages.json" `
+			-Method Post `
+			-Body $body `
+			-ContentType "application/x-www-form-urlencoded"
+
+		# Check response
+		if ($response.status -eq 1) {
+			Write-Host "Notification sent successfully!" -ForegroundColor Green
+		} else {
+			Write-Host "Failed to send notification. Response:" -ForegroundColor Red
+			$response | Format-List
+		}
 	}
+	catch {
+		Write-Host "Error sending notification: $_" -ForegroundColor Red
+	}	
 }
 
 function Monitor_mDNS_Queries
@@ -63,16 +63,16 @@ function Monitor_mDNS_Queries
 		[int]$port,						#mDNS Port 5353
 
 		[Parameter(Mandatory = $true)]
-		[string]$localIP = "",          # Local Network Device IP
+		[string]$localIP,          # Local Network Device IP
 		
 		[Parameter(Mandatory = $true)]
-		[string]$VMName = "",          # Hyper-V VM to start
+		[string]$VMName,          # Hyper-V VM to start
 		
 		[Parameter(Mandatory = $true)]
-		[string]$MatchName = "",	   # mDNS query name to trigger VM start
-	
+		[string]$MatchName,	   # mDNS query name to trigger VM start
+
 		[Parameter(Mandatory = $true)]
-		[System.Collections.ArrayList]$UserKeys,       # Pushover User Keys
+		[string[]]$UserKeys,       # Pushover User Keys
 
 		[Parameter(Mandatory = $true)]
 		[string]$ApiToken,		# Your Pushover API token
@@ -85,6 +85,7 @@ function Monitor_mDNS_Queries
 		
 		[Parameter(Mandatory = $true)]
 		[int64]$Notify_Delay_Time		 # Notify Delay Time in Seconds
+	
 	)
 	
 	# LAN IP to bind to (change to your actual IP)
@@ -108,6 +109,7 @@ function Monitor_mDNS_Queries
 
 	Write-Host "Listening for mDNS queries on UDP port 5353..."
 	$last_run_epoch = [int64](0)
+
 
 	while ($true) {
 		try {
@@ -140,7 +142,10 @@ function Monitor_mDNS_Queries
 					if($current_epoch -gt $next_run_epoch) {
 						Start-VM -Name $VMName -ErrorAction Stop
 						Write-Host "VM '$VMName' started successfully."
-						Send_Pushover_Notification -UserKey $UserKey -ApiToken $ApiToken -Pushover_Message "AirPrint Started, Please Wait" -Pushover_Title "Print Alerts"
+						foreach($UserKey in $UserKeys)
+						{
+							Send_Pushover_Notification -UserKey $UserKey -ApiToken $ApiToken -Pushover_Message "AirPrint Started, Please Wait" -Pushover_Title "Print Alerts"				
+						}
 						$last_run_epoch = $current_epoch
 					}
 				}
@@ -157,15 +162,22 @@ function Monitor_mDNS_Queries
 
 function Monitor_mDNS_Queries_Main
 {
-	[Parameter(Mandatory = $true)]
-	[System.Collections.ArrayList]$UserKeys,       # Pushover User Keys
+	param(
+		[Parameter(Mandatory = $true)]
+		[string[]]$UserKeys,       # Pushover User Keys
 
-	[Parameter(Mandatory = $true)]
-	[string]$ApiToken		# Your Pushover API token
+		[Parameter(Mandatory = $true)]
+		[string]$ApiToken,		# Your Pushover API token
+
+		[Parameter(Mandatory = $true)]
+		[string]$MatchName
+	)
+	
 	
 	while ($true) {
 		try{
-			Monitor_mDNS_Queries -multicastIP "224.0.0.251" -port 5353 -localIP "192.168.1.99" -VMName "Ubuntu 22.04 LTS MQTT" -MatchName "Canon LBP6030w/6018w @ navvm._ipps._tcp.local" -UserKeys $UserKeys -ApiToken $ApiToken -Pushover_Message "AirPrint Started, Please Wait" -Pushover_Title "Print Alerts" -Notify_Delay_Time 1800	
+			Write-Host $UserKeys
+			Monitor_mDNS_Queries -multicastIPStr "224.0.0.251" -port 5353 -localIP "192.168.1.100" -VMName "Ubuntu 22.04 LTS MQTT" -MatchName $MatchName -UserKeys $UserKeys -ApiToken $ApiToken -Pushover_Message "AirPrint Started, Please Wait" -Pushover_Title "Print Alerts" -Notify_Delay_Time 1800 
 		}
 		catch{
 			
@@ -174,7 +186,9 @@ function Monitor_mDNS_Queries_Main
 }
 
 
+$UserKeys = @('')
 $ApiToken = ""
-$UserKeys = @("")
 
-Monitor_mDNS_Queries_Main -ApiToken $ApiToken -UserKeys $UserKeys
+$MatchName = "vm.local"
+
+Monitor_mDNS_Queries_Main -UserKeys $UserKeys -ApiToken $ApiToken -MatchName $MatchName
